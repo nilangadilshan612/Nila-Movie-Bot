@@ -43,7 +43,7 @@ const config = {
         version: '1.2.0',
         description: 'Nilanga Movie & Group Automation Bot',
         developer: 'Nilanga',
-        number: null
+        number: '94789766005',
     },
 
     // ═══════════════════════════════════════════════════════════════
