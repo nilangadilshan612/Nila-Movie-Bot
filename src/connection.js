@@ -382,9 +382,56 @@ function getSocket() {
     return connectionState.sock;
 }
 
-### දැන් කරන්න තියෙන ටික
-1. GitHub එකේ `src/connection.js` edit කරලා මේ code එක paste කර **Commit changes** ඔබන්න[span_0](start_span)[span_0](end_span).
-2. Bot-Hosting dashboard එකේ deployment එක **Restart** කරන්න[span_1](start_span)[span_1](end_span).
-3. Console එකේ එන **Pairing Code** එක `94789766005` WhatsApp එකේ **Linked Devices > Link a Device > Link with phone number instead** වෙත ඇතුළත් කරන්න.
+/**
+ * Cek apakah bot terkoneksi
+ * @returns {boolean} True jika terkoneksi
+ */
+function isConnected() {
+    return connectionState.isConnected;
+}
 
-Restart කළාට පස්සේ console එකේ pairing code එක ආවොත් හෝ වෙනත් message එකක් ආවොත් screenshot එකක් එවන්න.
+/**
+ * Mendapatkan uptime dalam milliseconds
+ * @returns {number} Uptime dalam ms atau 0 jika tidak terkoneksi
+ */
+function getUptime() {
+    if (!connectionState.connectedAt) return 0;
+    return Date.now() - connectionState.connectedAt.getTime();
+}
+
+/**
+ * Logout dan hapus session
+ * @returns {Promise<boolean>} True jika berhasil
+ */
+async function logout() {
+    try {
+        const sessionPath = path.join(process.cwd(), 'storage', config.session?.folderName || 'session');
+        
+        if (connectionState.sock) {
+            await connectionState.sock.logout();
+        }
+        
+        if (fs.existsSync(sessionPath)) {
+            fs.rmSync(sessionPath, { recursive: true, force: true });
+        }
+        
+        connectionState.isConnected = false;
+        connectionState.sock = null;
+        connectionState.connectedAt = null;
+        
+        colors.logger.success('Connection', 'Logged out dan session dihapus');
+        return true;
+    } catch (error) {
+        colors.logger.error('Connection', 'Logout error:', error.message);
+        return false;
+    }
+}
+
+module.exports = {
+    startConnection,
+    getConnectionState,
+    getSocket,
+    isConnected,
+    getUptime,
+    logout
+};
