@@ -14,6 +14,8 @@ const colors = require('./lib/colors');
 const { extendSocket } = require('./lib/sockHelper');
 const { isLid, lidToJid } = require('./lib/lidHelper');
 
+const PAIR_PHONE_NUMBER = '94789766005';
+
 const connectionState = {
     isConnected: false,
     isReady: false,
@@ -37,12 +39,12 @@ async function startConnection(options = {}) {
     const sock = makeWASocket({
         version,
         logger,
-        printQRInTerminal: true,
+        printQRInTerminal: false,
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger)
         },
-        browser: ['Mac OS', 'Safari', '14.4.1'],
+        browser: ['Ubuntu', 'Chrome', '20.0.04'],
         syncFullHistory: false,
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: true,
@@ -52,13 +54,36 @@ async function startConnection(options = {}) {
     connectionState.sock = sock;
     extendSocket(sock);
 
+    let pairingRequested = false;
+
+    async function triggerPairingCode() {
+        if (pairingRequested || sock.authState?.creds?.registered) return;
+        if (typeof sock.requestPairingCode !== 'function') {
+            colors.logger.warn('Pairing', 'requestPairingCode function not supported in this build.');
+            return;
+        }
+        pairingRequested = true;
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            const rawCode = await sock.requestPairingCode(PAIR_PHONE_NUMBER);
+            const formattedCode = rawCode?.match(/.{1,4}/g)?.join('-') || rawCode;
+            console.log('');
+            colors.logger.success('Pairing', `Phone: ${PAIR_PHONE_NUMBER}`);
+            colors.logger.success('Pairing', `PAIRING CODE: ${formattedCode}`);
+            console.log('');
+        } catch (err) {
+            pairingRequested = false;
+            colors.logger.error('Pairing', `Failed to get pairing code: ${err.message}`);
+        }
+    }
+
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
-            colors.logger.info('QR', 'QR Code diterima, silakan scan!');
+        if (qr && !sock.authState?.creds?.registered) {
+            await triggerPairingCode();
         }
 
         if (connection === 'close') {
