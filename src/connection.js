@@ -131,18 +131,18 @@ async function startConnection(options = {}) {
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify' || !connectionState.isReady) return;
+        if (!['notify', 'append'].includes(type) || !connectionState.isReady) return;
 
-        for (const msg of messages) {
-            if (!msg.message) continue;
-            let jid = msg.key.remoteJid || '';
+        for (const msg of messages || []) {
+            if (!msg || !msg.message) continue;
+            let jid = msg.key?.remoteJid || '';
             if (jid === 'status@broadcast' || jid.endsWith('@newsletter') || jid.endsWith('@broadcast')) continue;
 
             if (isLid(jid)) {
                 jid = lidToJid(jid);
                 msg.key.remoteJid = jid;
             }
-            if (msg.key.participant && isLid(msg.key.participant)) {
+            if (msg.key?.participant && isLid(msg.key.participant)) {
                 msg.key.participant = lidToJid(msg.key.participant);
             }
             if (!jid || jid === 'undefined' || jid.length < 5) continue;
