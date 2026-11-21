@@ -2,7 +2,7 @@
  * @file src/handler.js
  * @description Message handler utama untuk memproses pesan dan menjalankan plugin
  * @author Ourin-AI Team
- * @version 2.1.0
+ * @version 2.2.0
  */
 
 const config = require('../config');
@@ -16,6 +16,11 @@ const { logger, logMessage, logCommand } = require('./lib/colors');
 const { isLid, lidToJid } = require('./lib/lidHelper');
 
 const spamMap = new Map();
+
+function resolveJid(jid) {
+    if (!jid) return '';
+    return isLid(jid) ? lidToJid(jid) : jid;
+}
 
 function isSpamming(jid) {
     if (!config.features?.antiSpam) return false;
@@ -92,19 +97,29 @@ function extractCommandFallback(m) {
 }
 
 async function sendSafeReply(sock, m, text) {
+    const targetChat = resolveJid(m.chat || m.key?.remoteJid);
+    if (!targetChat) return;
+
     if (typeof m.reply === 'function') {
-        await m.reply(text);
-        return;
+        try {
+            await m.reply(text);
+            return;
+        } catch {
+            // Fallback to direct sendMessage without quoted object
+        }
     }
-    if (m.chat) {
-        await sock.sendMessage(m.chat, { text }, { quoted: m });
-    }
+
+    await sock.sendMessage(targetChat, { text });
 }
 
 async function messageHandler(msg, sock) {
     try {
         const m = await serialize(sock, msg);
         if (!m || !m.message) return;
+
+        m.chat = resolveJid(m.chat || msg.key?.remoteJid);
+        m.sender = resolveJid(m.sender || msg.key?.participant || (m.fromMe ? sock.user?.id : m.chat));
+        m.senderNumber = m.sender ? m.sender.replace(/@.+/g, '') : '';
 
         const db = getDatabase();
 
@@ -210,7 +225,12 @@ async function messageHandler(msg, sock) {
         const chatType = m.isGroup ? 'group' : 'private';
         logCommand(`${m.prefix || '.'}${m.command}`, safeName, chatType);
 
-        await plugin.handler(m, context);
+        try {
+            await plugin.handler(m, context);
+        } catch (pluginErr) {
+            logger.error('Plugin', `${m.command}: ${pluginErr.message}`);
+            await sendSafeReply(sock, m, `⚠️ *${m.command}* run කරද්දී error එකක් ආවා:\n${pluginErr.message}`).catch(() => {});
+        }
 
         if (!m.isOwner && plugin.config?.cooldown > 0 && typeof db.setCooldown === 'function') {
             db.setCooldown(m.sender, m.command, plugin.config.cooldown);
