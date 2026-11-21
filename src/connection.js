@@ -150,13 +150,13 @@ async function startConnection(options = {}) {
     const { version, isLatest } = await fetchLatestBaileysVersion();
     colors.logger.info('Connection', `Menggunakan WA v${version.join('.')}, isLatest: ${isLatest}`);
     
-    const usePairingCode = config.session?.usePairingCode === true;
+    const usePairingCode = false;
     const pairingNumber = config.session?.pairingNumber || config.bot?.number || '94789766005';
     
     const sock = makeWASocket({
         version,
         logger,
-        printQRInTerminal: !usePairingCode && (config.session?.printQRInTerminal ?? true),
+        printQRInTerminal: true,
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger)
@@ -304,135 +304,4 @@ async function startConnection(options = {}) {
             }
             
             // Convert LID to standard JID
-            if (isLid(jid)) {
-                jid = lidToJid(jid);
-                msg.key.remoteJid = jid;
-                colors.logger.debug('LID', `Converted remoteJid to ${jid}`);
-            }
-            
-            // Convert participant LID if exists
-            if (msg.key.participant && isLid(msg.key.participant)) {
-                msg.key.participant = lidToJid(msg.key.participant);
-            }
-            
-            // Skip broadcast lists
-            if (jid.endsWith('@broadcast')) {
-                colors.logger.debug('Skip', 'Broadcast message filtered');
-                continue;
-            }
-            
-            // Skip undefined/invalid JIDs
-            if (!jid || jid === 'undefined' || jid.length < 5) {
-                colors.logger.debug('Skip', 'Invalid JID filtered');
-                continue;
-            }
-            
-            if (options.onMessage) {
-                try {
-                    await options.onMessage(msg, sock);
-                } catch (error) {
-                    colors.logger.error('Message', error.message);
-                }
-            }
-        }
-    });
-    
-    sock.ev.on('group-participants.update', async (update) => {
-        if (options.onGroupUpdate) {
-            await options.onGroupUpdate(update, sock);
-        }
-    });
-    
-    sock.ev.on('groups.update', async (updates) => {
-        for (const update of updates) {
-            colors.logger.debug('Group', `Updated: ${update.id}`);
-        }
-    });
-    
-    if (config.features?.antiCall) {
-        sock.ev.on('call', async (calls) => {
-            for (const call of calls) {
-                if (call.status === 'offer') {
-                    colors.logger.warn('Call', `Menolak panggilan dari ${call.from}`);
-                    await sock.rejectCall(call.id, call.from);
-                    
-                    await sock.sendMessage(call.from, {
-                        text: '🚫 *Auto Reject Call*\n\nMaaf, bot tidak menerima panggilan. Silakan kirim pesan teks saja.'
-                    });
-                }
-            }
-        });
-    }
-    
-    return sock;
-}
-
-/**
- * Mendapatkan status koneksi
- * @returns {ConnectionState} State koneksi saat ini
- */
-function getConnectionState() {
-    return connectionState;
-}
-
-/**
- * Mendapatkan socket instance
- * @returns {Object|null} Socket atau null jika tidak terkoneksi
- */
-function getSocket() {
-    return connectionState.sock;
-}
-
-/**
- * Cek apakah bot terkoneksi
- * @returns {boolean} True jika terkoneksi
- */
-function isConnected() {
-    return connectionState.isConnected;
-}
-
-/**
- * Mendapatkan uptime dalam milliseconds
- * @returns {number} Uptime dalam ms atau 0 jika tidak terkoneksi
- */
-function getUptime() {
-    if (!connectionState.connectedAt) return 0;
-    return Date.now() - connectionState.connectedAt.getTime();
-}
-
-/**
- * Logout dan hapus session
- * @returns {Promise<boolean>} True jika berhasil
- */
-async function logout() {
-    try {
-        const sessionPath = path.join(process.cwd(), 'storage', config.session?.folderName || 'session');
-        
-        if (connectionState.sock) {
-            await connectionState.sock.logout();
-        }
-        
-        if (fs.existsSync(sessionPath)) {
-            fs.rmSync(sessionPath, { recursive: true, force: true });
-        }
-        
-        connectionState.isConnected = false;
-        connectionState.sock = null;
-        connectionState.connectedAt = null;
-        
-        colors.logger.success('Connection', 'Logged out dan session dihapus');
-        return true;
-    } catch (error) {
-        colors.logger.error('Connection', 'Logout error:', error.message);
-        return false;
-    }
-}
-
-module.exports = {
-    startConnection,
-    getConnectionState,
-    getSocket,
-    isConnected,
-    getUptime,
-    logout
-};
+            if (is
