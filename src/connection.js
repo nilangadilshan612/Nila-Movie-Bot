@@ -22,43 +22,20 @@ const colors = require('./lib/colors');
 const { extendSocket } = require('./lib/sockHelper');
 const { isLid, lidToJid, decodeAndNormalize } = require('./lib/lidHelper');
 
-/**
- * @typedef {Object} ConnectionState
- * @property {boolean} isConnected - Status koneksi
- * @property {Object|null} sock - Socket instance
- * @property {number} reconnectAttempts - Jumlah percobaan reconnect
- * @property {Date|null} connectedAt - Waktu koneksi berhasil
- */
-
-/**
- * State koneksi global
- * @type {ConnectionState}
- */
 const connectionState = {
     isConnected: false,
-    isReady: false, // Flag to prevent premature message handling
+    isReady: false,
     sock: null,
     reconnectAttempts: 0,
     connectedAt: null
 };
 
-/**
- * Logger instance dengan level minimal
- * @type {Object}
- */
 const logger = pino({ 
     level: 'silent'
 });
 
-/**
- * Interface untuk input terminal
- * @type {readline.Interface|null}
- */
 let rl = null;
 
-/**
- * Suppress internal Baileys console logs
- */
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 
@@ -94,10 +71,6 @@ console.error = (...args) => {
     }
 };
 
-/**
- * Membuat readline interface
- * @returns {readline.Interface}
- */
 function createReadlineInterface() {
     if (rl) {
         rl.close();
@@ -109,11 +82,6 @@ function createReadlineInterface() {
     return rl;
 }
 
-/**
- * Prompt untuk input
- * @param {string} question - Pertanyaan
- * @returns {Promise<string>} Input dari user
- */
 function askQuestion(question) {
     return new Promise((resolve) => {
         const interface = createReadlineInterface();
@@ -124,20 +92,6 @@ function askQuestion(question) {
     });
 }
 
-/**
- * Memulai koneksi WhatsApp
- * @param {Object} options - Opsi koneksi
- * @param {Function} [options.onMessage] - Callback untuk pesan baru
- * @param {Function} [options.onConnectionUpdate] - Callback untuk update koneksi
- * @param {Function} [options.onGroupUpdate] - Callback untuk update group
- * @returns {Promise<Object>} Socket connection
- * @example
- * const sock = await startConnection({
- *   onMessage: async (m) => {
- *     console.log('New message:', m.body);
- *   }
- * });
- */
 async function startConnection(options = {}) {
     const sessionPath = path.join(process.cwd(), 'storage', config.session?.folderName || 'session');
     
@@ -169,8 +123,6 @@ async function startConnection(options = {}) {
     });
     
     connectionState.sock = sock;
-    
-    // Extend socket with helper methods
     extendSocket(sock);
     
     if (usePairingCode && !sock.authState.creds.registered) {
@@ -260,7 +212,6 @@ async function startConnection(options = {}) {
             connectionState.reconnectAttempts = 0;
             connectionState.connectedAt = new Date();
             
-            // Set bot number for auto-owner
             const botNumber = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0];
             if (botNumber) {
                 config.setBotNumber(botNumber);
@@ -282,7 +233,6 @@ async function startConnection(options = {}) {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         
-        // Wait for connection to be ready
         if (!connectionState.isReady) {
             colors.logger.debug('Skip', 'Connection not ready yet');
             return;
@@ -291,17 +241,121 @@ async function startConnection(options = {}) {
         for (const msg of messages) {
             if (!msg.message) continue;
             
-            // Filter non-user messages
             let jid = msg.key.remoteJid || '';
             
-            // Skip status broadcast
             if (jid === 'status@broadcast') continue;
             
-            // Skip newsletter/channel messages
             if (jid.endsWith('@newsletter')) {
                 colors.logger.debug('Skip', 'Newsletter message filtered');
                 continue;
             }
             
-            // Convert LID to standard JID
-            if (is
+            if (isLid(jid)) {
+                jid = lidToJid(jid);
+                msg.key.remoteJid = jid;
+                colors.logger.debug('LID', `Converted remoteJid to ${jid}`);
+            }
+            
+            if (msg.key.participant && isLid(msg.key.participant)) {
+                msg.key.participant = lidToJid(msg.key.participant);
+            }
+            
+            if (jid.endsWith('@broadcast')) {
+                colors.logger.debug('Skip', 'Broadcast message filtered');
+                continue;
+            }
+            
+            if (!jid || jid === 'undefined' || jid.length < 5) {
+                colors.logger.debug('Skip', 'Invalid JID filtered');
+                continue;
+            }
+            
+            if (options.onMessage) {
+                try {
+                    await options.onMessage(msg, sock);
+                } catch (error) {
+                    colors.logger.error('Message', error.message);
+                }
+            }
+        }
+    });
+    
+    sock.ev.on('group-participants.update', async (update) => {
+        if (options.onGroupUpdate) {
+            await options.onGroupUpdate(update, sock);
+        }
+    });
+    
+    sock.ev.on('groups.update', async (updates) => {
+        for (const update of updates) {
+            colors.logger.debug('Group', `Updated: ${update.id}`);
+        }
+    });
+    
+    if (config.features?.antiCall) {
+        sock.ev.on('call', async (calls) => {
+            for (const call of calls) {
+                if (call.status === 'offer') {
+                    colors.logger.warn('Call', `Menolak panggilan dari ${call.from}`);
+                    await sock.rejectCall(call.id, call.from);
+                    
+                    await sock.sendMessage(call.from, {
+                        text: '🚫 *Auto Reject Call*\n\nMaaf, bot tidak menerima panggilan. Silakan kirim pesan teks saja.'
+                    });
+                }
+            }
+        });
+    }
+    
+    return sock;
+}
+
+function getConnectionState() {
+    return connectionState;
+}
+
+function getSocket() {
+    return connectionState.sock;
+}
+
+function isConnected() {
+    return connectionState.isConnected;
+}
+
+function getUptime() {
+    if (!connectionState.connectedAt) return 0;
+    return Date.now() - connectionState.connectedAt.getTime();
+}
+
+async function logout() {
+    try {
+        const sessionPath = path.join(process.cwd(), 'storage', config.session?.folderName || 'session');
+        
+        if (connectionState.sock) {
+            await connectionState.sock.logout();
+        }
+        
+        if (fs.existsSync(sessionPath)) {
+            fs.rmSync(sessionPath, { recursive: true, force: true });
+        }
+        
+        connectionState.isConnected = false;
+        connectionState.sock = null;
+        connectionState.connectedAt = null;
+        
+        colors.logger.success('Connection', 'Logged out dan session dihapus');
+        return true;
+    } catch (error) {
+        colors.logger.error('Connection', 'Logout error:', error.message);
+        return false;
+    }
+}
+
+module.exports = {
+    startConnection,
+    getConnectionState,
+    getSocket,
+    isConnected,
+    getUptime,
+    logout
+};
