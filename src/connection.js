@@ -161,7 +161,7 @@ async function startConnection(options = {}) {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger)
         },
-        browser: ['Ubuntu', 'Chrome', '20.0.0'],
+        browser: ['Mac OS', 'Safari', '14.4.1'],
         syncFullHistory: false,
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: true,
@@ -210,7 +210,8 @@ async function startConnection(options = {}) {
             ], 'green'));
             console.log('');
         } catch (error) {
-            colors.logger.error('Pairing', 'Gagal mendapatkan pairing code:', error.message);
+            const errMsg = error?.message || error?.output?.payload?.message || JSON.stringify(error) || 'Unknown error';
+            colors.logger.error('Pairing', 'Gagal mendapatkan pairing code:', errMsg);
         }
     }
     
